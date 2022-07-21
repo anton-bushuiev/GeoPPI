@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import sys,os, gc
 import csv, glob
@@ -110,7 +112,7 @@ def build_graph(lines, interface_res, mutinfo, cutoff=3, max_dis=12, noisedict =
 
             if chainid not in chain2id:
                 chain2id.append(chainid)
- 
+
             line_token = '{}_{}_{}_{}'.format(atomname,resname,chainid, res_idx)
             if line_token not in line_list:
                 line_list.append(line_token)
@@ -173,7 +175,7 @@ def build_graph(lines, interface_res, mutinfo, cutoff=3, max_dis=12, noisedict =
             #24
             if cr_token in interface_res:
                 features[V_atom+V_res] = 1
-            
+
             if mutinfo is not None:
                 for inforrr in mutinfo:
                     mut_chainid = inforrr.split('_')[0]
@@ -209,13 +211,13 @@ def build_graph(lines, interface_res, mutinfo, cutoff=3, max_dis=12, noisedict =
                 features[V_atom+V_res+8]=1
                 flag_mut = True
                 flag = True
-            
+
             if flag:
                 atoms.append(features)
 
     if mutinfo is not None and len(interface_res)>0:
         assert flag_mut==True
-    
+
     if len(atoms)<5:
         return None
     atoms = torch.tensor(atoms, dtype=torch.float)
@@ -247,24 +249,28 @@ def build_graph(lines, interface_res, mutinfo, cutoff=3, max_dis=12, noisedict =
     return savefilecont
 
 def main():
+    t_begin = time.time()
+
     gnnfile = 'trainedmodels/GeoEnc.tor'
     gbtfile = 'trainedmodels/gbt-s4169.pkl'
     idxfile = 'trainedmodels/sortidx.npy'
     pdbfile = sys.argv[1]
     mutationinfo = sys.argv[2]
     if_info = sys.argv[3]
-
+    wt_structure_ready = bool(int(sys.argv[4]))
 
     try:
         sorted_idx = np.load(idxfile)
     except:
         print('File reading error: Please redownload the file {} from the GitHub website again!'.format(idxfile))
 
-
-    os.system('cp {} ./'.format(pdbfile))
+    mutationinfo_osname = mutationinfo.replace(',', '_')
+    os.system(f'cp {pdbfile} {pdbfile[:-4] + mutationinfo_osname + pdbfile[-4:]}')
+    pdbfile = pdbfile[:-4] + mutationinfo_osname + pdbfile[-4:]
+    os.system('mv {} ./'.format(pdbfile))
     pdbfile = pdbfile.split('/')[-1]
     pdb = pdbfile.split('.')[0]
-    workdir = 'temp'
+    workdir = f'temp-{mutationinfo_osname}'
     cutoff = 3
 
     if path.exists('./{}'.format(workdir)):
@@ -279,31 +285,42 @@ def main():
     graph_mutinfo = []
     flag = False
     info = mutationinfo
-    wildname = info[0]
-    chainid = info[1] 
-    resid = info[2:-1]
-    mutname = info[-1]
-    if wildname==mutname:flag= True
-    graph_mutinfo.append('{}_{}'.format(chainid,resid))
+    # wildname = info[0]
+    chainid = info[1]
+    # resid = info[2:-1]
+    # mutname = info[-1]
+    # if wildname==mutname:flag= True
+    # graph_mutinfo.append('{}_{}'.format(chainid,resid))
+    for mut in mutationinfo.split(','):
+        graph_mutinfo.append(f'{mut[1]}_{mut[2:-1]}')
 
     # build a pdb file that is mutated to it self
-    with open('individual_list.txt','w') as f:
-        cont = '{}{}{}{};'.format(wildname,chainid,resid,wildname)
-        f.write(cont)
-    comm = './foldx --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format(\
-                                pdbfile,  'individual_list.txt', workdir, './',workdir)
-    os.system(comm)
-    os.system('mv {}/{}_1.pdb   {}/wildtype.pdb '.format(workdir, pdb, workdir))
+    individual_list = f'individual_list_{mutationinfo}.txt'
+    if not wt_structure_ready:
+        mutationinfo_itself = mutationinfo.split(',')
+        mutationinfo_itself = list(map(lambda m: m[:-1] + m[0], mutationinfo_itself))
+        mutationinfo_itself = ','.join(mutationinfo_itself)
+        with open(individual_list,'w') as f:
+            # cont = '{}{}{}{};'.format(wildname,chainid,resid,wildname)
+            cont = mutationinfo_itself + ';'
+            f.write(cont)
+        comm = './foldx --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format(\
+                                    pdbfile,  individual_list, workdir, './',workdir)
+        os.system(comm)
+        os.system('mv {}/{}_1.pdb   {}/wildtype.pdb '.format(workdir, pdb, workdir))
+    else:
+        os.system('cp data/wildtype.pdb {}/wildtype.pdb'.format(workdir))
+    wildtypefile = '{}/wildtype.pdb'.format(workdir)
 
     # build the mutant file
-    with open('individual_list.txt','w') as f:
-        cont = '{}{}{}{};'.format(wildname,chainid,resid,mutname)
+    with open(individual_list,'w') as f:
+        # cont = '{}{}{}{};'.format(wildname,chainid,resid,mutname)
+        cont = mutationinfo + ';'
         f.write(cont)
     comm = './foldx --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format(\
-                                pdbfile,  'individual_list.txt', workdir, './',workdir)
+                                pdbfile,  individual_list, workdir, './',workdir)
     os.system(comm)
 
-    wildtypefile = '{}/wildtype.pdb'.format(workdir, pdb)
     mutantfile = '{}/{}_1.pdb'.format(workdir, pdb)
 
     try:
@@ -312,14 +329,20 @@ def main():
     except:
         print('Data processing error: Please double check your inputs is correct! Such as the pdb file path, mutation information and binding partners. You might find more error details at {}/foldx.log'.format(workdir))
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    try:
+        with open(gbtfile, 'rb') as pickle_file:
+            forest = pickle.load(pickle_file)
+    except:
+        print('File reading error: Please redownload the file {} via the following command: \
+                wget https://media.githubusercontent.com/media/Liuxg16/largefiles/8167d5c365c92d08a81dffceff364f72d765805c/gbt-s4169.pkl -P trainedmodels/'.format(gbtfile))
+
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     model = GeometricEncoder(256)
     try:
-        model.load_state_dict(torch.load(gnnfile,map_location='cpu'))
+        model.load_state_dict(torch.load(gnnfile,map_location=device))
     except:
         print('File reading error: Please redownload the file {} from the GitHub website again!'.format(gnnfile))
-
 
     model.to(device)
     model.eval()
@@ -328,29 +351,26 @@ def main():
     A_m = A_m.to(device)
     E_m = E_m.to(device)
 
-    try:
-        with open(gbtfile, 'rb') as pickle_file:
-            forest = pickle.load(pickle_file)
-    except:
-        print('File reading error: Please redownload the file {} via the following command: \
-                wget https://media.githubusercontent.com/media/Liuxg16/largefiles/8167d5c365c92d08a81dffceff364f72d765805c/gbt-s4169.pkl -P trainedmodels/'.format(gbtfile))
-
     ddg = GeoPPIpredict(A,E,A_m,E_m, model, forest, sorted_idx,flag)
- 
-    print('='*40+'Results'+'='*40)
-    if ddg<0:
-        mutationeffects = 'destabilizing'
-        print('The predicted binding affinity change (wildtype-mutant) is {} kcal/mol ({} mutation).'.format(ddg,mutationeffects))
-    elif ddg>0:
-        mutationeffects = 'stabilizing'
-        print('The predicted binding affinity change (wildtype-mutant) is {} kcal/mol ({} mutation).'.format(ddg,mutationeffects))
-    else:
-        print('The predicted binding affinity change (wildtype-mutant) is 0.0 kcal/mol.')
+
+    # print('='*40+'Results'+'='*40)
+    # if ddg<0:
+    #     mutationeffects = 'destabilizing'
+    #     print('The predicted binding affinity change (wildtype-mutant) is {} kcal/mol ({} mutation).'.format(ddg,mutationeffects))
+    # elif ddg>0:
+    #     mutationeffects = 'stabilizing'
+    #     print('The predicted binding affinity change (wildtype-mutant) is {} kcal/mol ({} mutation).'.format(ddg,mutationeffects))
+    # else:
+    #     print('The predicted binding affinity change (wildtype-mutant) is 0.0 kcal/mol.')
 
 
     os.system('rm ./{}'.format(pdbfile))
-    os.system('rm ./individual_list.txt')
+    os.system(f'rm ./{individual_list}')
+    os.system(f'rm -rf ./{workdir}')
+
+    runtime = time.time() - t_begin
+    print(f'{ddg},{runtime}', end=',')
+
 
 if __name__ == "__main__":
     main()
- 
