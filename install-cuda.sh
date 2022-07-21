@@ -28,10 +28,10 @@ fi
 eval "$(command conda 'shell.bash' 'hook' 2> /dev/null)"
 export PATH=$PATH:~/anaconda3/bin/
 source activate
-conda create -n ppi python==3.8.5 -y
-conda activate ppi
+conda create -n geoppi_cuda python==3.8.5 -y
+conda activate geoppi_cuda
 pip install  --no-cache-dir torch==1.7.0+cu110 -f  https://download.pytorch.org/whl/torch_stable.html
-pip install  --no-cache-dir torch-cluster==1.5.8 -f https://pytorch-geometric.com/whl/torch-1.7.0+cu110.html  
+pip install  --no-cache-dir torch-cluster==1.5.8 -f https://pytorch-geometric.com/whl/torch-1.7.0+cu110.html
 pip install  --no-cache-dir  torch-scatter==2.0.5 -f https://pytorch-geometric.com/whl/torch-1.7.0+cu110.html
 pip install  --no-cache-dir  torch-sparse==0.6.8 -f https://pytorch-geometric.com/whl/torch-1.7.0+cu110.html
 pip install  --no-cache-dir  torch-geometric==1.4.1

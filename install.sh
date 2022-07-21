@@ -1,4 +1,3 @@
-
 if [ $# -eq 0 ]
 then
 	echo "Please specified the argument [flag]. If your system has installed Anaconda software, please set [flag] to 1, otherwise set [flag] to 0. Then run: sh install.sh [flag]"
@@ -24,19 +23,18 @@ else
 fi
 fi
 
-
 eval "$(command conda 'shell.bash' 'hook' 2> /dev/null)"
 
 # build environment
 export PATH=$PATH:~/anaconda3/bin/
 source activate
-conda create -n ppi python==3.8.5 -y
-conda activate ppi
+conda create -n geoppi python==3.8.5 -y
+conda activate geoppi
 
 # dependencies
 pip install  --no-cache-dir torch==1.7.0+cpu -f  https://download.pytorch.org/whl/torch_stable.html
 pip install  --no-cache-dir torch==1.7.0+cpu -f  https://download.pytorch.org/whl/torch_stable.html
-pip install  --no-cache-dir torch-cluster==1.5.8 -f https://pytorch-geometric.com/whl/torch-1.7.0+cpu.html  
+pip install  --no-cache-dir torch-cluster==1.5.8 -f https://pytorch-geometric.com/whl/torch-1.7.0+cpu.html
 pip install  --no-cache-dir  torch-scatter==2.0.5 -f https://pytorch-geometric.com/whl/torch-1.7.0+cpu.html
 pip install  --no-cache-dir  torch-sparse==0.6.8 -f https://pytorch-geometric.com/whl/torch-1.7.0+cpu.html
 pip install  --no-cache-dir  torch-geometric==1.4.1
