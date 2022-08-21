@@ -84,7 +84,7 @@ class GeometricEncoder(torch.nn.Module):
         return rep
 
 
-def GeoPPIpredict(A, E, A_m, E_m, model, forest, sorted_idx,flag):
+def GeoPPIpredict(A, E, A_m, E_m, model, forest, sorted_idx,flag=False):
 
     with torch.no_grad():
         fea = model.gen_features(A, E, E, A_m, E_m, E_m)

@@ -249,94 +249,138 @@ def build_graph(lines, interface_res, mutinfo, cutoff=3, max_dis=12, noisedict =
         savefilecont = [ atoms, edge_sparse, edge_attr_sp, global_resid2noise]
     return savefilecont
 
-def main():
-    t_begin = time.time()
 
-    gnnfile = 'trainedmodels/GeoEnc.tor'
-    gbtfile = 'trainedmodels/gbt-s4169.pkl'
-    idxfile = 'trainedmodels/sortidx.npy'
-    pdbfile = sys.argv[1]
-    mutationinfo = sys.argv[2]
-    if_info = sys.argv[3]
-    wt_structure_ready = bool(int(sys.argv[4]))
-    foldx_version = int(sys.argv[5])
-    if foldx_version == 4:
-        foldx_exec = './foldx'
-    elif foldx_version == 5:
-        foldx_exec = '/scratch/project/open-24-15/sak-engineering/sak_engineering/utils/software/foldx5/foldx'
-    else:
-        raise ValueError('Wrong FoldX version specified')
-
-    try:
-        sorted_idx = np.load(idxfile)
-    except:
-        print('File reading error: Please redownload the file {} from the GitHub website again!'.format(idxfile))
-
+def prepare_workdir(pdbfile, mutationinfo):
+    # Rename original .pdb file to incorporate mutation info
     mutationinfo_osname = mutationinfo.replace(',', '_')
     os.system(f'cp {pdbfile} {pdbfile[:-4] + mutationinfo_osname + pdbfile[-4:]}')
+    # Move renamed file to local directory
     pdbfile = pdbfile[:-4] + mutationinfo_osname + pdbfile[-4:]
     os.system('mv {} ./'.format(pdbfile))
+    # Set up working directory
     pdbfile = pdbfile.split('/')[-1]
     pdb = pdbfile.split('.')[0]
     workdir = f'temp-{mutationinfo_osname}'
-    cutoff = 3
-
     if path.exists('./{}'.format(workdir)):
         os.system('rm -r {}'.format(workdir))
     os.system('mkdir {}'.format(workdir))
 
-    # generate the interface residues
+    return pdbfile, pdb, workdir
+
+
+def prepare_interface(workdir, pdbfile, if_info):
     os.system('python gen_interface.py {} {} {} > {}/pymol.log'.format(pdbfile, if_info,workdir,workdir))
     interfacefile = '{}/interface.txt'.format(workdir)
+    return interfacefile
 
-    # Extract mutation information
-    graph_mutinfo = []
-    flag = False
-    info = mutationinfo
-    # wildname = info[0]
-    chainid = info[1]
-    # resid = info[2:-1]
-    # mutname = info[-1]
-    # if wildname==mutname:flag= True
-    # graph_mutinfo.append('{}_{}'.format(chainid,resid))
-    for mut in mutationinfo.split(','):
-        graph_mutinfo.append(f'{mut[1]}_{mut[2:-1]}')
 
-    # build a pdb file that is mutated to it self
+def prepare_structures(workdir, pdbfile, pdb, mutationinfo, foldx_exec, wt_structure_ready, foldxsavedir):
     individual_list = f'individual_list_{mutationinfo}.txt'
+
+    # Build .pdb file for wild type complex with FoldX
     if not wt_structure_ready:
         mutationinfo_itself = mutationinfo.split(',')
         mutationinfo_itself = list(map(lambda m: m[:-1] + m[0], mutationinfo_itself))
         mutationinfo_itself = ','.join(mutationinfo_itself)
         with open(individual_list,'w') as f:
-            # cont = '{}{}{}{};'.format(wildname,chainid,resid,wildname)
             cont = mutationinfo_itself + ';'
             f.write(cont)
-        comm = '{} --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format(\
-                                    foldx_exec, pdbfile,  individual_list, workdir, './',workdir)
+        comm = '{} --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format( \
+            foldx_exec, pdbfile,  individual_list, workdir, './', workdir)
         os.system(comm)
         os.system('mv {}/{}_1.pdb   {}/wildtype.pdb '.format(workdir, pdb, workdir))
     else:
         os.system('cp data/wildtype.pdb {}/wildtype.pdb'.format(workdir))
     wildtypefile = '{}/wildtype.pdb'.format(workdir)
 
-    # build the mutant file
+    # Build .pdb file for mutated complex with FoldX
     with open(individual_list,'w') as f:
-        # cont = '{}{}{}{};'.format(wildname,chainid,resid,mutname)
         cont = mutationinfo + ';'
         f.write(cont)
-    comm = '{} --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format(\
-                                foldx_exec, pdbfile,  individual_list, workdir, './',workdir)
+    comm = '{} --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format( \
+        foldx_exec, pdbfile,  individual_list, workdir, './', workdir)
     os.system(comm)
-
     mutantfile = '{}/{}_1.pdb'.format(workdir, pdb)
 
+    # Save structures
+    os.system(f'cp {wildtypefile} {foldxsavedir}')
+    os.system(f'cp {mutantfile} {foldxsavedir}')
+
+    # Clean
+    os.system(f'rm ./{individual_list}')
+
+    return wildtypefile, mutantfile
+
+
+def pdbs_to_graphs(wildtypefile, mutantfile, mutationinfo, interfacefile, if_info):
+    # Construct graphs from built .pdb files
+    graph_mutinfo = []
+    for mut in mutationinfo.split(','):
+        graph_mutinfo.append(f'{mut[1]}_{mut[2:-1]}')
+    cutoff = 3
     try:
         A, E, _ =gen_graph_data(wildtypefile, graph_mutinfo, interfacefile , cutoff, if_info)
         A_m, E_m, _=gen_graph_data(mutantfile, graph_mutinfo, interfacefile , cutoff, if_info)
     except:
         print('Data processing error: Please double check your inputs is correct! Such as the pdb file path, mutation information and binding partners. You might find more error details at {}/foldx.log'.format(workdir))
 
+    return A, E, A_m, E_m
+
+
+def main():
+    t_begin = time.time()
+
+    # Read and set parameters
+    gnnfile = 'trainedmodels/GeoEnc.tor'
+    gbtfile = 'trainedmodels/gbt-s4169.pkl'
+    idxfile = 'trainedmodels/sortidx.npy'
+    pdbfile = sys.argv[1]
+    mutationinfo = sys.argv[2]
+    if_info = sys.argv[3]
+    foldxsavedir = '${DATA_DIR}/structures/FoldX'
+
+    # Set flag whether a WT structure is already ready or not and has to be
+    # optimized with FoldX
+    wt_structure_ready = False
+    if len(sys.argv) > 4:
+        wt_structure_ready = bool(int(sys.argv[4]))
+
+    # Set FoldX executable with specified version
+    foldx_exec = './foldx'
+    if len(sys.argv) > 5:
+        foldx_version = int(sys.argv[5])
+        if foldx_version == 4:
+            foldx_exec = './foldx'
+        elif foldx_version == 5:
+            foldx_exec = '${SOFTWARE_DIR}/foldx5/foldx'
+        else:
+            raise ValueError('Wrong FoldX version specified')
+
+    # Load (feature importance of node embeddings produced with GNN)?
+    try:
+        sorted_idx = np.load(idxfile)
+    except:
+        print('File reading error: Please redownload the file {} from the GitHub website again!'.format(idxfile))
+
+    # Prepare working directory
+    pdbfile, pdb, workdir = prepare_workdir(pdbfile, mutationinfo)
+
+    # Generate interface residues
+    interfacefile = prepare_interface(workdir, pdbfile, if_info)
+
+    # Prepare wild-type and mutated structures with FoldX
+    savedir = '${DATA_DIR}/foldx-structures'
+    wildtypefile, mutantfile = prepare_structures(
+        workdir, pdbfile, pdb, mutationinfo, foldx_exec, wt_structure_ready,
+        foldxsavedir
+    )
+
+    # Convert built .pdb files to graph representation
+    A, E, A_m, E_m = pdbs_to_graphs(
+        wildtypefile, mutantfile, mutationinfo, interfacefile, if_info
+    )
+
+    # Load GBT model
     try:
         with open(gbtfile, 'rb') as pickle_file:
             forest = pickle.load(pickle_file)
@@ -344,14 +388,15 @@ def main():
         print('File reading error: Please redownload the file {} via the following command: \
                 wget https://media.githubusercontent.com/media/Liuxg16/largefiles/8167d5c365c92d08a81dffceff364f72d765805c/gbt-s4169.pkl -P trainedmodels/'.format(gbtfile))
 
+    # Load GNN encoder
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
     model = GeometricEncoder(256)
     try:
         model.load_state_dict(torch.load(gnnfile,map_location=device))
     except:
         print('File reading error: Please redownload the file {} from the GitHub website again!'.format(gnnfile))
 
+    # Move graph tensors to device
     model.to(device)
     model.eval()
     A = A.to(device)
@@ -359,8 +404,16 @@ def main():
     A_m = A_m.to(device)
     E_m = E_m.to(device)
 
-    ddg = GeoPPIpredict(A,E,A_m,E_m, model, forest, sorted_idx,flag)
+    # Predict
+    ddg = GeoPPIpredict(A,E,A_m,E_m, model, forest, sorted_idx)
 
+    # Clean
+    os.system('rm ./{}'.format(pdbfile))
+    os.system(f'rm -rf ./{workdir}')
+
+    # Print prediction and running time
+    runtime = time.time() - t_begin
+    print(f'{ddg};{runtime}', end=';')
     # print('='*40+'Results'+'='*40)
     # if ddg<0:
     #     mutationeffects = 'destabilizing'
@@ -372,13 +425,5 @@ def main():
     #     print('The predicted binding affinity change (wildtype-mutant) is 0.0 kcal/mol.')
 
 
-    os.system('rm ./{}'.format(pdbfile))
-    os.system(f'rm ./{individual_list}')
-    os.system(f'rm -rf ./{workdir}')
-
-    runtime = time.time() - t_begin
-    print(f'{ddg};{runtime}', end=';')
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
