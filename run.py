@@ -19,6 +19,7 @@ def gen_graph_data(pdbfile, mutinfo, interfile,  cutoff, if_info=None):
     sample = build_graph(lines, interface_res,mutinfo, cutoff,max_dis)
     return sample
 
+
 def read_inter_result(path, if_info=None, chainid=None, old2new=None):
     if if_info is not None:
         info1 = if_info.split('_')
@@ -258,6 +259,13 @@ def main():
     mutationinfo = sys.argv[2]
     if_info = sys.argv[3]
     wt_structure_ready = bool(int(sys.argv[4]))
+    foldx_version = int(sys.argv[5])
+    if foldx_version == 4:
+        foldx_exec = './foldx'
+    elif foldx_version == 5:
+        foldx_exec = '/scratch/project/open-24-15/sak-engineering/sak_engineering/utils/software/foldx5/foldx'
+    else:
+        raise ValueError('Wrong FoldX version specified')
 
     try:
         sorted_idx = np.load(idxfile)
@@ -304,8 +312,8 @@ def main():
             # cont = '{}{}{}{};'.format(wildname,chainid,resid,wildname)
             cont = mutationinfo_itself + ';'
             f.write(cont)
-        comm = './foldx --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format(\
-                                    pdbfile,  individual_list, workdir, './',workdir)
+        comm = '{} --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format(\
+                                    foldx_exec, pdbfile,  individual_list, workdir, './',workdir)
         os.system(comm)
         os.system('mv {}/{}_1.pdb   {}/wildtype.pdb '.format(workdir, pdb, workdir))
     else:
@@ -317,8 +325,8 @@ def main():
         # cont = '{}{}{}{};'.format(wildname,chainid,resid,mutname)
         cont = mutationinfo + ';'
         f.write(cont)
-    comm = './foldx --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format(\
-                                pdbfile,  individual_list, workdir, './',workdir)
+    comm = '{} --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format(\
+                                foldx_exec, pdbfile,  individual_list, workdir, './',workdir)
     os.system(comm)
 
     mutantfile = '{}/{}_1.pdb'.format(workdir, pdb)
@@ -369,7 +377,7 @@ def main():
     os.system(f'rm -rf ./{workdir}')
 
     runtime = time.time() - t_begin
-    print(f'{ddg},{runtime}', end=',')
+    print(f'{ddg};{runtime}', end=';')
 
 
 if __name__ == "__main__":
