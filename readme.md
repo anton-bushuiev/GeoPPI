@@ -59,7 +59,7 @@ conda activate ppi
 ```
 Then, you can use the following command to obtain the results:
 ```bash
-python run.py [pdb file] [Mutation] [partnerA_partnerB]
+python predict.py [pdb file] [Mutation] [partnerA_partnerB]
 ```
 where [pdb file] is the complex structure of interest, [Mutation] denotes the mutation information and [partnerA_partnerB] describes the two interaction partners in the protein complex.
 
@@ -78,7 +78,7 @@ Thererfore, the positive value stands for the higher binding affinity between tw
 
 For example, when we execute the command:
 ```bash
-python run.py data/testExamples/1PPF.pdb  TI17F  E_I
+python predict.py data/testExamples/1PPF.pdb  TI17F  E_I
 ```
 
 The program output is similar to the following:
@@ -91,16 +91,16 @@ The predicted binding affinity change (wildtype-mutant) is -1.76 kcal/mol (desta
 ### More examples
 In the GeoPPI/data directory, there are several example complexes for users to test GeoPPI. Here, we also provide some example commands as follows.
 ```bash
-python run.py data/testExamples/1PPF.pdb  TI17R  E_I
-python run.py data/testExamples/1CZ8.pdb  KW84A  WV_HL
-python run.py data/testExamples/1CSE.pdb  LI38I  E_I
-python run.py data/testExamples/3SGB.pdb  KI7L  E_I
-python run.py data/testExamples/3BT1.pdb  PU149A  U_A
+python predict.py data/testExamples/1PPF.pdb  TI17R  E_I
+python predict.py data/testExamples/1CZ8.pdb  KW84A  WV_HL
+python predict.py data/testExamples/1CSE.pdb  LI38I  E_I
+python predict.py data/testExamples/3SGB.pdb  KI7L  E_I
+python predict.py data/testExamples/3BT1.pdb  PU149A  U_A
 ```
 ## Running on your own structure
 Users can also use their own structures to analyze the mutation effects by putting the PDB files into the directory `data/testExamples/` and executing the above command again:
 ```bash
-python run.py [pdb file] [Mutation] [partnerA_partnerB]
+python predict.py [pdb file] [Mutation] [partnerA_partnerB]
 ```
 
 ## Contact

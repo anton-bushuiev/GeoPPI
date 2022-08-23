@@ -1,12 +1,8 @@
-import time
-
-import numpy as np
-import sys,os, gc
-import csv, glob
+import sys
+import os
 import os.path as path
 import torch, pickle
 from models import *
-from sklearn.ensemble import GradientBoostingRegressor,RandomForestRegressor
 
 
 def gen_graph_data(pdbfile, mutinfo, interfile,  cutoff, if_info=None):
@@ -45,8 +41,8 @@ def read_inter_result(path, if_info=None, chainid=None, old2new=None):
 
         target_inters = []
         for chainidx in chainid:
-            target_inters += ['{}_{}'.format(chainidx,y) for y in target_chains]+\
-                    ['{}_{}'.format(y,chainidx) for y in target_chains]
+            target_inters += ['{}_{}'.format(chainidx,y) for y in target_chains]+ \
+                             ['{}_{}'.format(y,chainidx) for y in target_chains]
 
         target_inters =list(set(target_inters))
     else:
@@ -73,12 +69,13 @@ def read_inter_result(path, if_info=None, chainid=None, old2new=None):
 
     return interface_res
 
+
 def build_graph(lines, interface_res, mutinfo, cutoff=3, max_dis=12, noisedict = None):
     atomnames = ['C','N','O','S']
-    residues = ['ARG','MET','VAL','ASN','PRO','THR','PHE','ASP','ILE',\
-            'ALA','GLY','GLU','LEU','SER','LYS','TYR','CYS','HIS','GLN','TRP']
-    res_code = ['R','M','V','N','P','T','F','D','I',\
-            'A','G','E','L','S','K','Y','C','H','Q','W']
+    residues = ['ARG','MET','VAL','ASN','PRO','THR','PHE','ASP','ILE', \
+                'ALA','GLY','GLU','LEU','SER','LYS','TYR','CYS','HIS','GLN','TRP']
+    res_code = ['R','M','V','N','P','T','F','D','I', \
+                'A','G','E','L','S','K','Y','C','H','Q','W']
     res2code ={x:idxx for x,idxx in zip(residues, res_code)}
 
     atomdict = {x:i for i,x in enumerate(atomnames)}
@@ -327,41 +324,13 @@ def pdbs_to_graphs(wildtypefile, mutantfile, mutationinfo, interfacefile, if_inf
     return A, E, A_m, E_m
 
 
-def main():
-    t_begin = time.time()
-
-    # Read and set parameters
-    gnnfile = 'trainedmodels/GeoEnc.tor'
-    gbtfile = 'trainedmodels/gbt-s4169.pkl'
-    idxfile = 'trainedmodels/sortidx.npy'
-    pdbfile = sys.argv[1]
-    mutationinfo = sys.argv[2]
-    if_info = sys.argv[3]
-    foldxsavedir = '${DATA_DIR}/structures/FoldX'
-
-    # Set flag whether a WT structure is already ready or not and has to be
-    # optimized with FoldX
-    wt_structure_ready = False
-    if len(sys.argv) > 4:
-        wt_structure_ready = bool(int(sys.argv[4]))
-
-    # Set FoldX executable with specified version
-    foldx_exec = './foldx'
-    if len(sys.argv) > 5:
-        foldx_version = int(sys.argv[5])
-        if foldx_version == 4:
-            foldx_exec = './foldx'
-        elif foldx_version == 5:
-            foldx_exec = '${SOFTWARE_DIR}/foldx5/foldx'
-        else:
-            raise ValueError('Wrong FoldX version specified')
-
-    # Load (feature importance of node embeddings produced with GNN)?
-    try:
-        sorted_idx = np.load(idxfile)
-    except:
-        print('File reading error: Please redownload the file {} from the GitHub website again!'.format(idxfile))
-
+def encode(
+        pdbfile, mutationinfo, if_info,
+        wt_structure_ready=False,
+        gnnfile='trainedmodels/GeoEnc.tor',
+        foldx_exec='./foldx',
+        foldxsavedir='${DATA_DIR}/structures/FoldX'
+):
     # Prepare working directory
     pdbfile, pdb, workdir = prepare_workdir(pdbfile, mutationinfo)
 
@@ -380,14 +349,6 @@ def main():
         wildtypefile, mutantfile, mutationinfo, interfacefile, if_info
     )
 
-    # Load GBT model
-    try:
-        with open(gbtfile, 'rb') as pickle_file:
-            forest = pickle.load(pickle_file)
-    except:
-        print('File reading error: Please redownload the file {} via the following command: \
-                wget https://media.githubusercontent.com/media/Liuxg16/largefiles/8167d5c365c92d08a81dffceff364f72d765805c/gbt-s4169.pkl -P trainedmodels/'.format(gbtfile))
-
     # Load GNN encoder
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = GeometricEncoder(256)
@@ -404,26 +365,31 @@ def main():
     A_m = A_m.to(device)
     E_m = E_m.to(device)
 
-    # Predict
-    ddg = GeoPPIpredict(A,E,A_m,E_m, model, forest, sorted_idx)
+    # Encode
+    fea = GeoPPIencode(A, E, A_m, E_m, model)
 
     # Clean
     os.system('rm ./{}'.format(pdbfile))
     os.system(f'rm -rf ./{workdir}')
 
-    # Print prediction and running time
-    runtime = time.time() - t_begin
-    print(f'{ddg};{runtime}', end=';')
-    # print('='*40+'Results'+'='*40)
-    # if ddg<0:
-    #     mutationeffects = 'destabilizing'
-    #     print('The predicted binding affinity change (wildtype-mutant) is {} kcal/mol ({} mutation).'.format(ddg,mutationeffects))
-    # elif ddg>0:
-    #     mutationeffects = 'stabilizing'
-    #     print('The predicted binding affinity change (wildtype-mutant) is {} kcal/mol ({} mutation).'.format(ddg,mutationeffects))
-    # else:
-    #     print('The predicted binding affinity change (wildtype-mutant) is 0.0 kcal/mol.')
+    return fea
 
 
 if __name__ == '__main__':
-    main()
+    # Read input parameters
+    pdbfile = sys.argv[1]
+    mutationinfo = sys.argv[2]
+    if_info = sys.argv[3]
+
+    # Read flag whether a WT structure is already ready or not and has to be
+    # optimized with FoldX
+    wt_structure_ready = False
+    if len(sys.argv) > 4:
+        wt_structure_ready = bool(int(sys.argv[4]))
+
+    # Encode
+    fea = encode(pdbfile, mutationinfo, if_info, wt_structure_ready)
+
+    # Print features
+    fea = map(str, fea.tolist())
+    print(';'.join(fea))

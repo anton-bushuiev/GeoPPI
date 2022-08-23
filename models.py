@@ -5,6 +5,8 @@ from torch_geometric.data import DataLoader
 from torch_geometric.nn import GATConv, NNConv, FeaStConv
 from cgat import CGAT
 import numpy as np
+import pickle
+from sklearn.ensemble import GradientBoostingRegressor
 
 
 
@@ -84,10 +86,15 @@ class GeometricEncoder(torch.nn.Module):
         return rep
 
 
-def GeoPPIpredict(A, E, A_m, E_m, model, forest, sorted_idx,flag=False):
-
+def GeoPPIencode(A, E, A_m, E_m, model):
     with torch.no_grad():
         fea = model.gen_features(A, E, E, A_m, E_m, E_m)
+    return fea
+
+
+def GeoPPIpredict(A, E, A_m, E_m, model, forest, sorted_idx,flag=False):
+
+    fea = GeoPPIencode(A, E, A_m, E_m, model)
 
     features = np.round(fea.cpu().view(1,-1).numpy(),3)
     ddg = forest.predict(features[:,sorted_idx[:240]])
@@ -102,4 +109,30 @@ def GeoPPIpredict(A, E, A_m, E_m, model, forest, sorted_idx,flag=False):
     return ddg
 
 
-
+# class GeoPPI():
+#     def __init__(
+#             self, gnnfile, sorted_idx=None, gbtfile=None, foldxsavedir=None
+#     ):
+#         # Load GNN encoder
+#         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+#         self.gnn = GeometricEncoder(256)
+#         try:
+#             self.gnn.load_state_dict(torch.load(gnnfile,map_location=device))
+#         except:
+#             print('File reading error: Please redownload the file {} from the GitHub website again!'.format(gnnfile))
+#             exit(1)
+#
+#         self.sorted_idx = sorted_idx
+#
+#         # Load GBT model
+#         gbt = GradientBoostingRegressor()
+#         try:
+#             with open(gbtfile, 'rb') as pickle_file:
+#                 gbt = pickle.load(pickle_file)
+#         except:
+#             print('File reading error: Please redownload the file {} for the model pretrained on single-point mutations via the following command: \
+#                     wget https://media.githubusercontent.com/media/Liuxg16/largefiles/8167d5c365c92d08a81dffceff364f72d765805c/gbt-s4169.pkl -P trainedmodels/'.format(gbtfile))
+#
+#         self.foldxsavedir = foldxsavedir
+#
+#     def predict(self, pdbs, mutinfos):
