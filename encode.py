@@ -311,12 +311,13 @@ def prepare_structures(workdir, pdbfile, pdb, mutationinfo, foldx_exec, wt_struc
         os.system(f'cp {mut_path_cache} {mut_path}')
 
     # Build .pdb file for mutated complex with FoldX
-    with open(individual_list,'w') as f:
-        cont = mutationinfo + ';'
-        f.write(cont)
-    comm = '{} --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format( \
-        foldx_exec, pdbfile,  individual_list, workdir, './', workdir)
-    os.system(comm)
+    else:
+        with open(individual_list,'w') as f:
+            cont = mutationinfo + ';'
+            f.write(cont)
+        comm = '{} --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format( \
+            foldx_exec, pdbfile,  individual_list, workdir, './', workdir)
+        os.system(comm)
 
     # Save structures
     if foldxsavedir is not None:
@@ -324,7 +325,7 @@ def prepare_structures(workdir, pdbfile, pdb, mutationinfo, foldx_exec, wt_struc
         os.system(f'cp {mut_path} {mut_path_cache}')
 
     # Clean
-    os.system(f'rm ./{individual_list}')
+    os.system(f'rm -f ./{individual_list}')
 
     return wt_path, mut_path
 
