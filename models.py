@@ -92,10 +92,7 @@ def GeoPPIencode(A, E, A_m, E_m, model):
     return fea
 
 
-def GeoPPIpredict(A, E, A_m, E_m, model, forest, sorted_idx,flag=False):
-
-    fea = GeoPPIencode(A, E, A_m, E_m, model)
-
+def GeoPPIpredict(fea, forest, sorted_idx, flag=False):
     features = np.round(fea.cpu().view(1,-1).numpy(),3)
     ddg = forest.predict(features[:,sorted_idx[:240]])
     ddg = np.round(ddg[0],2)

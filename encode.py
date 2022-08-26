@@ -271,7 +271,7 @@ def prepare_interface(workdir, pdbfile, if_info):
     return interfacefile
 
 
-def prepare_structures(workdir, pdbfile, pdb, mutationinfo, foldx_exec, wt_structure_ready, foldxsavedir):
+def prepare_structures(workdir, pdbfile, pdb, mutationinfo, foldx_exec, foldxsavedir):
     # Define necessary paths
     individual_list = f'individual_list_{mutationinfo}.txt'
     wt_path = f'{workdir}/wildtype.pdb'
@@ -282,13 +282,8 @@ def prepare_structures(workdir, pdbfile, pdb, mutationinfo, foldx_exec, wt_struc
     # # Prepare wild-type structure (may be necessary during training
     # # due to augmented reverse mutations)
 
-    # Check if structure is already given (useful for screening of mutations of
-    # the same structure)
-    if wt_structure_ready:
-        os.system(f'cp data/wildtype.pdb {wt_path}')
-
     # Check if structure already in cache
-    elif foldxsavedir is not None and path.isfile(wt_path_cache):
+    if foldxsavedir is not None and path.isfile(wt_path_cache):
         os.system(f'cp {wt_path_cache} {wt_path}')
 
     # Else build .pdb file for wild type complex with FoldX and save to cache
@@ -347,7 +342,6 @@ def pdbs_to_graphs(wildtypefile, mutantfile, mutationinfo, interfacefile, if_inf
 
 def encode(
         pdbfile, mutationinfo, if_info,
-        wt_structure_ready=False,
         gnnfile='trainedmodels/GeoEnc.tor',
         foldx_exec='./foldx',
         foldxsavedir=None
@@ -361,8 +355,7 @@ def encode(
     # Prepare wild-type and mutated structures with FoldX
     savedir = '${DATA_DIR}/foldx-structures'
     wildtypefile, mutantfile = prepare_structures(
-        workdir, pdbfile, pdb, mutationinfo, foldx_exec, wt_structure_ready,
-        foldxsavedir
+        workdir, pdbfile, pdb, mutationinfo, foldx_exec, foldxsavedir
     )
 
     # Convert built .pdb files to graph representation
@@ -374,7 +367,7 @@ def encode(
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = GeometricEncoder(256)
     try:
-        model.load_state_dict(torch.load(gnnfile,map_location=device))
+        model.load_state_dict(torch.load(gnnfile, map_location=device))
     except:
         print('File reading error: Please redownload the file {} from the GitHub website again!'.format(gnnfile))
 
@@ -407,17 +400,17 @@ if __name__ == '__main__':
     if len(sys.argv) > 4:
         foldxsavedir = sys.argv[4]
 
-    # Read flag whether a WT structure is already ready or not and has to be
-    # optimized with FoldX
-    wt_structure_ready = False
+    # Set FoldX executable with specified version
+    foldx_exec = './foldx'
     if len(sys.argv) > 5:
-        wt_structure_ready = bool(int(sys.argv[5]))
+        foldx_exec = sys.argv[5]
 
     # Encode
     fea = encode(
         pdbfile, mutationinfo, if_info,
-        wt_structure_ready=wt_structure_ready,
-        foldxsavedir=foldxsavedir
+        gnnfile='trainedmodels/GeoEnc.tor',
+        foldx_exec=foldx_exec,
+        foldxsavedir=None
     )
 
     # Print features
