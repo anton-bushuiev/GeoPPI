@@ -11,11 +11,7 @@ from encode import encode
 
 
 # TODO Rewrite to XGBoost
-def predict(
-    fea,
-    gbtfile,
-    idxfile,
-):
+def predict(fea, gbtfile, idxfile):
     # Load GBT model
     try:
         with open(gbtfile, 'rb') as pickle_file:
@@ -62,24 +58,28 @@ def main():
         pdbfile, mutationinfo, if_info,
         gnnfile='trainedmodels/GeoEnc.tor',
         foldx_exec=foldx_exec,
-        foldxsavedir=None
+        foldxsavedir=None,
+        wt_kind='foldx_byproduct'
     )
 
     # Predict
     ddg = predict(fea, gbtfile, idxfile)
 
     # Print prediction and running time
-    runtime = time.time() - t_begin
-    print(f'{ddg};{runtime}', end=';')
-    # print('='*40+'Results'+'='*40)
-    # if ddg<0:
-    #     mutationeffects = 'destabilizing'
-    #     print('The predicted binding affinity change (wildtype-mutant) is {} kcal/mol ({} mutation).'.format(ddg,mutationeffects))
-    # elif ddg>0:
-    #     mutationeffects = 'stabilizing'
-    #     print('The predicted binding affinity change (wildtype-mutant) is {} kcal/mol ({} mutation).'.format(ddg,mutationeffects))
-    # else:
-    #     print('The predicted binding affinity change (wildtype-mutant) is 0.0 kcal/mol.')
+    # runtime = time.time() - t_begin
+    # print(f'{ddg};{runtime}', end=';')
+    print('='*40+'Results'+'='*40)
+    if ddg < 0:
+        mutationeffects = 'destabilizing'
+        print(f'The predicted binding affinity change (wildtype-mutant) is'
+              f' {ddg} kcal/mol ({mutationeffects} mutation).')
+    elif ddg > 0:
+        mutationeffects = 'stabilizing'
+        print(f'The predicted binding affinity change (wildtype-mutant) is'
+              f' {ddg} kcal/mol ({mutationeffects} mutation).')
+    else:
+        print('The predicted binding affinity change (wildtype-mutant) is'
+              ' 0.0 kcal/mol.')
 
 
 if __name__ == '__main__':

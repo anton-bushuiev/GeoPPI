@@ -271,71 +271,99 @@ def prepare_interface(workdir, pdbfile, if_info):
     return interfacefile
 
 
-def prepare_structures(workdir, pdbfile, pdb, mutationinfo, foldx_exec, foldxsavedir):
+def run_foldx(foldx_exec, pdbfile, individual_list, outdir):
+    command = (
+        f'{foldx_exec}'
+        f' --command=BuildModel'
+        f' --pdb={pdbfile}'
+        f' --mutant-file={individual_list}'
+        f' --output-dir={outdir}'
+        f' --pdb-dir=./'
+        f' > {outdir}/foldx.log'
+    )
+    return os.system(command)
+
+
+def prepare_structures(
+        workdir, pdbfile, pdb, mutationinfo,
+        foldx_exec, foldxsavedir,
+        wt_kind='foldx_byproduct'
+):
+    # Check input
+    if wt_kind not in ['original', 'foldx_itself', 'foldx_byproduct']:
+        raise ValueError('Wrong wt-kind value')
+
     # Define necessary paths
-    individual_list = f'individual_list_{mutationinfo}.txt'
-    wt_path = f'{workdir}/wildtype.pdb'
+    individual_list_path = f'individual_list_{mutationinfo}.txt'
+    wt_path = f'{workdir}/WT_{pdb}_1.pdb'
     mut_path = f'{workdir}/{pdb}_1.pdb'
     wt_path_cache = f'{foldxsavedir}/{pdb}-wt.pdb'
     mut_path_cache = f'{foldxsavedir}/{pdb}-mut.pdb'
+    workdir_tmp = f'{workdir}/tmp'
+    os.mkdir(workdir_tmp)
 
-    # # Prepare wild-type structure (may be necessary during training
-    # # due to augmented reverse mutations)
-
-    # Check if structure already in cache
-    if foldxsavedir is not None and path.isfile(wt_path_cache):
-        os.system(f'cp {wt_path_cache} {wt_path}')
-
-    # Else build .pdb file for wild type complex with FoldX and save to cache
-    else:
-        mutationinfo_itself = mutationinfo.split(',')
-        mutationinfo_itself = list(map(lambda m: m[:-1] + m[0], mutationinfo_itself))
-        mutationinfo_itself = ','.join(mutationinfo_itself)
-        with open(individual_list,'w') as f:
-            cont = mutationinfo_itself + ';'
-            f.write(cont)
-        comm = '{} --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format( \
-            foldx_exec, pdbfile,  individual_list, workdir, './', workdir)
-        os.system(comm)
-        os.system('mv {}/{}_1.pdb   {}'.format(workdir, pdb, wt_path))
-
-    # # Prepare mutated structure
-
-    # Check if structure already in cache
-    if foldxsavedir is not None and path.isfile(mut_path_cache):
-        os.system(f'cp {mut_path_cache} {mut_path}')
-
-    # Build .pdb file for mutated complex with FoldX
-    else:
-        with open(individual_list,'w') as f:
-            cont = mutationinfo + ';'
-            f.write(cont)
-        comm = '{} --command=BuildModel --pdb={}  --mutant-file={}  --output-dir={} --pdb-dir={} >{}/foldx.log'.format( \
-            foldx_exec, pdbfile,  individual_list, workdir, './', workdir)
-        os.system(comm)
-
-    # Save structures
+    # Check if structures are already in cache and read them if yes
     if foldxsavedir is not None:
-        os.system(f'cp {wt_path} {wt_path_cache}')
-        os.system(f'cp {mut_path} {mut_path_cache}')
+        if path.isfile(wt_path_cache) and path.isfile(mut_path_cache):
+            os.system(f'cp {wt_path_cache} {wt_path}')
+            os.system(f'cp {mut_path_cache} {mut_path}')
+
+    # Build .pdb files for mutated complex with FoldX
+    else:
+        # Run FoldX to mutate structure
+        # This run also automatically produces a wild-type structure for
+        # wt_kind == 'foldx_byproduct' scenario
+        mut = mutationinfo + ';'
+        with open(individual_list_path, 'w') as file:
+            file.write(mut)
+        run_foldx(foldx_exec, pdbfile, individual_list_path, workdir)
+
+        # Run FoldX to mutate structure to itself
+        if wt_kind == 'foldx_itself':
+            rev_mut = mutationinfo.split(',')
+            rev_mut = list(map(lambda m: m[:-1] + m[0], rev_mut))
+            rev_mut = ','.join(rev_mut)
+            rev_mut = rev_mut + ';'
+            with open(individual_list_path, 'w') as file:
+                file.write(rev_mut)
+            run_foldx(foldx_exec, pdbfile, individual_list_path, workdir_tmp)
+            os.system(f'mv {workdir_tmp}/{pdb}_1.pdb {wt_path}')
+
+        # Leave original wild-type structure
+        if wt_kind == 'original':
+            os.system(f'cp {pdbfile} {wt_path}')
+
+        # Save structures
+        if foldxsavedir is not None:
+            os.system(f'cp {wt_path} {wt_path_cache}')
+            os.system(f'cp {mut_path} {mut_path_cache}')
 
     # Clean
-    os.system(f'rm -f ./{individual_list}')
+    os.system(f'rm -f {individual_list_path}')
+    os.system(f'rm -rf {workdir_tmp}')
 
     return wt_path, mut_path
 
 
-def pdbs_to_graphs(wildtypefile, mutantfile, mutationinfo, interfacefile, if_info):
+def pdbs_to_graphs(
+        wildtypefile, mutantfile, mutationinfo, interfacefile, if_info
+):
     # Construct graphs from built .pdb files
     graph_mutinfo = []
     for mut in mutationinfo.split(','):
         graph_mutinfo.append(f'{mut[1]}_{mut[2:-1]}')
     cutoff = 3
+
     try:
-        A, E, _ =gen_graph_data(wildtypefile, graph_mutinfo, interfacefile , cutoff, if_info)
-        A_m, E_m, _=gen_graph_data(mutantfile, graph_mutinfo, interfacefile , cutoff, if_info)
+        A, E, _ = gen_graph_data(wildtypefile, graph_mutinfo, interfacefile,
+                                 cutoff, if_info)
+        A_m, E_m, _= gen_graph_data(mutantfile, graph_mutinfo, interfacefile,
+                                    cutoff, if_info)
     except:
-        print('Data processing error: Please double check your inputs is correct! Such as the pdb file path, mutation information and binding partners. You might find more error details at {}/foldx.log'.format(workdir))
+        print('Data processing error: Please double check your inputs is'
+              ' correct! Such as the pdb file path, mutation information'
+              ' and binding partners. You might find more error details'
+              ' at {}/foldx.log'.format(workdir))
 
     return A, E, A_m, E_m
 
@@ -344,7 +372,8 @@ def encode(
         pdbfile, mutationinfo, if_info,
         gnnfile='trainedmodels/GeoEnc.tor',
         foldx_exec='./foldx',
-        foldxsavedir=None
+        foldxsavedir=None,
+        wt_kind='foldx_byproduct'
 ):
     # Prepare working directory
     pdbfile, pdb, workdir = prepare_workdir(pdbfile, mutationinfo)
@@ -353,9 +382,10 @@ def encode(
     interfacefile = prepare_interface(workdir, pdbfile, if_info)
 
     # Prepare wild-type and mutated structures with FoldX
-    savedir = '${DATA_DIR}/foldx-structures'
     wildtypefile, mutantfile = prepare_structures(
-        workdir, pdbfile, pdb, mutationinfo, foldx_exec, foldxsavedir
+        workdir, pdbfile, pdb, mutationinfo,
+        foldx_exec, foldxsavedir,
+        wt_kind
     )
 
     # Convert built .pdb files to graph representation
@@ -369,7 +399,8 @@ def encode(
     try:
         model.load_state_dict(torch.load(gnnfile, map_location=device))
     except:
-        print('File reading error: Please redownload the file {} from the GitHub website again!'.format(gnnfile))
+        print('File reading error: Please redownload the file {}'
+              ' from the GitHub website again!'.format(gnnfile))
 
     # Move graph tensors to device
     model.to(device)
