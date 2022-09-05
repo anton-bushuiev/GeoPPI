@@ -36,4 +36,5 @@ pip install  --no-cache-dir  torch-scatter==2.0.5 -f https://pytorch-geometric.c
 pip install  --no-cache-dir  torch-sparse==0.6.8 -f https://pytorch-geometric.com/whl/torch-1.7.0+cu110.html
 pip install  --no-cache-dir  torch-geometric==1.4.1
 pip install  --no-cache-dir  scikit-learn==0.24.1
+pip install biopython
 conda install -c schrodinger pymol -y

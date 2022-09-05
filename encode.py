@@ -1,7 +1,12 @@
 import sys
 import os
 import os.path as path
-import torch, pickle
+import warnings
+import argparse
+import torch
+import pickle
+from pathlib import Path
+import Bio.PDB
 from models import *
 
 
@@ -284,6 +289,51 @@ def run_foldx(foldx_exec, pdbfile, individual_list, outdir):
     return os.system(command)
 
 
+# TODO move to utils.mutations
+def is_mutation_reverse(pdbfile, mutationinfo, model_id=0):
+    # Select first mutation
+    # (Relaxed to check only the first one for better performance)
+    mut = mutationinfo.split(',')[0]
+
+    # Parse mutation info
+    wtres, chainid, pos, mutres = mut[0], mut[1], int(mut[2:-1]), mut[-1]
+
+    # Read structure
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        model = Bio.PDB.PDBParser().get_structure(None, pdbfile)[model_id]
+
+    # Check mutated amino acid
+    resname = model[chainid][pos].get_resname()
+    resname = Bio.PDB.Polypeptide.three_to_one(resname)
+    if resname == wtres:
+        return False
+    elif resname == mutres:
+        return True
+    else:
+        raise ValueError(f'{mut} is neither forward nor reverse.')
+
+
+# TODO import from utils.mutations
+def revert_mutation(mut):
+    """
+    :param mut: str representing single- or multi-point mutation. Examples:
+        YC17T
+        YC17T,TA20A
+    :return: str representing single- or multi-point mutation. Examples:
+        TC17Y
+        TC17Y,AA20T
+    """
+    # Check if single- or multi-point
+    if ',' not in mut:
+        # If single-, revert
+        return mut[-1] + mut[1:-1] + mut[0]
+    else:
+        # If multiple-, call recursively for each one
+        mut_list = mut.replace(' ', '').split(',')
+        return ','.join(list(map(revert_mutation, mut_list)))
+
+
 def prepare_structures(
         workdir, pdbfile, pdb, mutationinfo,
         foldx_exec, foldxsavedir,
@@ -301,6 +351,14 @@ def prepare_structures(
     mut_path_cache = f'{foldxsavedir}/{pdb}-mut.pdb'
     workdir_tmp = f'{workdir}/tmp'
     os.mkdir(workdir_tmp)
+
+    # If mutations is reverse, revert back and swap roles
+    mutation_is_reverse = is_mutation_reverse(pdbfile, mutationinfo)
+    if mutation_is_reverse:
+        mutationinfo = revert_mutation(mutationinfo)
+        individual_list_path = f'individual_list_{mutationinfo}.txt'
+        wt_path, mut_path = mut_path, wt_path
+        wt_path_cache, mut_path_cache = mut_path_cache, wt_path_cache
 
     # Check if structures are already in cache and read them if yes
     if foldxsavedir is not None:
@@ -338,6 +396,15 @@ def prepare_structures(
             os.system(f'cp {wt_path} {wt_path_cache}')
             os.system(f'cp {mut_path} {mut_path_cache}')
 
+    # If mutations is reverse, swap files
+    # (Not necessary but for naming consistency)
+    if mutation_is_reverse:
+        tmp_path = f'{workdir_tmp}/tmp.pdb'
+        os.system(f'mv {wt_path} {tmp_path} &&'
+                  f'mv {mut_path} {wt_path} &&'
+                  f'mv {tmp_path} {mut_path}')
+        wt_path, mut_path = mut_path, wt_path
+
     # Clean
     os.system(f'rm -f {individual_list_path}')
     os.system(f'rm -rf {workdir_tmp}')
@@ -346,7 +413,7 @@ def prepare_structures(
 
 
 def pdbs_to_graphs(
-        wildtypefile, mutantfile, mutationinfo, interfacefile, if_info
+        wildtypefile, mutantfile, mutationinfo, interfacefile, if_info, workdir
 ):
     # Construct graphs from built .pdb files
     graph_mutinfo = []
@@ -390,7 +457,7 @@ def encode(
 
     # Convert built .pdb files to graph representation
     A, E, A_m, E_m = pdbs_to_graphs(
-        wildtypefile, mutantfile, mutationinfo, interfacefile, if_info
+        wildtypefile, mutantfile, mutationinfo, interfacefile, if_info, workdir
     )
 
     # Load GNN encoder
@@ -415,35 +482,39 @@ def encode(
 
     # Clean
     os.system('rm ./{}'.format(pdbfile))
-    os.system(f'rm -rf ./{workdir}')
+    # os.system(f'rm -rf ./{workdir}')
 
     return fea
 
 
 if __name__ == '__main__':
-    # Read input parameters
-    pdbfile = sys.argv[1]
-    mutationinfo = sys.argv[2]
-    if_info = sys.argv[3]
-
-    # Read path to FoldX cache with optimized structures
-    foldxsavedir = None
-    if len(sys.argv) > 4:
-        foldxsavedir = sys.argv[4]
-
-    # Set FoldX executable with specified version
-    foldx_exec = './foldx'
-    if len(sys.argv) > 5:
-        foldx_exec = sys.argv[5]
+    # Parse command line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('posargs', nargs=3)
+    parser.add_argument('--outdir', default=None)
+    parser.add_argument('--foldx_savedir', default=None)
+    parser.add_argument('--foldx_exec', default='./foldx')
+    args = parser.parse_args()
+    # assert len(args.posargs) == 3, f'Wrong num. of positional arguments {args}.'
+    pdbfile, mutationinfo, if_info = args.posargs
 
     # Encode
     fea = encode(
         pdbfile, mutationinfo, if_info,
         gnnfile='trainedmodels/GeoEnc.tor',
-        foldx_exec=foldx_exec,
-        foldxsavedir=None
+        foldx_exec=args.foldx_exec,
+        foldxsavedir=args.foldx_savedir
     )
 
-    # Print features
-    fea = map(str, fea.tolist())
-    print(';'.join(fea))
+    # Store output
+    outdir = args.outdir
+    if outdir:
+        # Write to file
+        pdb = Path(pdbfile).stem
+        outfile = Path(outdir) / f'{pdb}-{mutationinfo}-{if_info}'
+        with open(outfile, 'wb') as file:
+            pickle.dump(fea, file)
+    else:
+        # Print features
+        fea = map(str, fea.tolist())
+        print(';'.join(fea))
