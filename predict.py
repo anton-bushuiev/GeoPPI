@@ -58,7 +58,7 @@ def main():
         pdbfile, mutationinfo, if_info,
         gnnfile='trainedmodels/GeoEnc.tor',
         foldx_exec=foldx_exec,
-        foldxsavedir=None,
+        foldxsavedir=foldxsavedir,
         wt_kind='foldx_byproduct'
     )
 

@@ -482,7 +482,7 @@ def encode(
 
     # Clean
     os.system('rm ./{}'.format(pdbfile))
-    # os.system(f'rm -rf ./{workdir}')
+    os.system(f'rm -rf ./{workdir}')
 
     return fea
 

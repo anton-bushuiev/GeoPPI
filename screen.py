@@ -67,7 +67,7 @@ def write_to_csv(data, outfile, header=None):
 
 
 def get_results_csv_header():
-    return 'Mutation', 'ddG', 'Elapsed time', 'Run name'
+    return 'Mutation', 'ddG', 'Elapsed time'
 
 
 def screen_chunk(chunk, encode_params, predict_params, write_queue):
