@@ -1,0 +1,9 @@
+Untrained scores normal: [-15.46579900896937, -11.058109011700301, -12.124655747815837, -10.933456236529228, -11.326684040810608]
+Mean untrained score normal: -12.181740809165069
+Untrained scores shuffle: [-11.242874876207129, -5.323080815033234, -6.899249737310514, -5.30128544047721, -6.483455932233391]
+Mean untrained score shuffle: -7.049989360252295
+Fitting 5 folds for each of 1 candidates, totalling 5 fits
+-5.375902039033209
+{}
+{'mean_fit_time': array([21.98739324]), 'std_fit_time': array([0.77221628]), 'mean_score_time': array([0.02045398]), 'std_score_time': array([0.01321623]), 'params': [{}], 'split0_test_score': array([-10.75690858]), 'split1_test_score': array([-3.91936251]), 'split2_test_score': array([-4.69312858]), 'split3_test_score': array([-3.42719956]), 'split4_test_score': array([-4.08291097]), 'mean_test_score': array([-5.37590204]), 'std_test_score': array([2.72074202]), 'rank_test_score': array([1], dtype=int32)}
+38.304638147354126
