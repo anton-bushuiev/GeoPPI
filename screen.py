@@ -126,6 +126,7 @@ def main():
         wt_kind=wt_kind
     )
     predict_params = dict(
+        # xgbfile = 'trainedmodels/SKEMPI2-ML/predictor.pkl'
         gbtfile='trainedmodels/gbt-s4169.pkl',
         idxfile='trainedmodels/sortidx.npy'
     )

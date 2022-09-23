@@ -9,12 +9,17 @@
 # mutfile="${3}"
 # outdir="${4}"
 # runname="${5}"
+# wtkind="${6}"
 # Example values
 # "${SAK_MPLASMIN_PDB}"
 # "${SAK_CHAINID}_${MPLASMIN_CHAINID}"
 # "${MUTATIONS_DIR}/random-for-tests/1p/0"
 # "${PREDICTIONS_DIR}/foldx-preprocessing-choice/test"
 # "test-run"
+# "foldx_byproduct"
+# PBS Example
+# qsub -A ${PROJECTID} -q qexp -v pdbfile="${SAK_MPLASMIN_PDB}",partners="${SAK_CHAINID}_${MPLASMIN_CHAINID}",mutfile="${MUTATIONS_DIR}/affilib-space/best_clustered_mutants-50/0",outdir="${PREDICTIONS_DIR}/GeoPPI/retrained/best_clustered_mutants-50",runname="prediction",wtkind="foldx_byproduct" screen_job.sh
+
 
 # TODO set properly
 stdoutfile="job_stdout.txt"
@@ -38,7 +43,7 @@ runid="${runname}_${rundatetime}"
 
 # Run screening
 python screen.py "${pdbfile}" "${partners}" "${mutfile}" "${outdir}" \
-                 "${runid}" "${wt_kind}"
+                 "${runid}" "${wtkind}"
 
 # Copy logging files
 logsdir="${outdir}/logs"

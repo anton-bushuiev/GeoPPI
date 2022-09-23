@@ -11,23 +11,40 @@ from encode import encode
 
 
 # TODO Rewrite to XGBoost
-def predict(fea, gbtfile, idxfile):
-    # Load GBT model
-    try:
-        with open(gbtfile, 'rb') as pickle_file:
-            forest = pickle.load(pickle_file)
-    except:
-        raise Exception('File reading error: Please redownload the file {} via the following command: \
-                wget https://media.githubusercontent.com/media/Liuxg16/largefiles/8167d5c365c92d08a81dffceff364f72d765805c/gbt-s4169.pkl -P trainedmodels/'.format(gbtfile))
+def predict(fea, gbtfile=None, idxfile=None, xgbfile=None):
+    if gbtfile is not None and idxfile is not None:
+        predictor_kind = 'gbt'
+    elif xgbfile is not None:
+        predictor_kind = 'xgb'
+    else:
+        raise ValueError('Wrong predict arguments specified.')
 
-    # Load (feature importance of node embeddings produced with GNN)?
-    try:
-        sorted_idx = np.load(idxfile)
-    except:
-        raise Exception('File reading error: Please redownload the file {} from the GitHub website again!'.format(idxfile))
+    if predictor_kind == 'gbt':
+        # Load GBT model
+        try:
+            with open(gbtfile, 'rb') as pickle_file:
+                forest = pickle.load(pickle_file)
+        except:
+            raise Exception('File reading error: Please redownload the file {} via the following command: \
+                    wget https://media.githubusercontent.com/media/Liuxg16/largefiles/8167d5c365c92d08a81dffceff364f72d765805c/gbt-s4169.pkl -P trainedmodels/'.format(gbtfile))
 
-    # Predict
-    ddg = GeoPPIpredict(fea, forest, sorted_idx)
+        # Load (feature importance of node embeddings produced with GNN)?
+        try:
+            sorted_idx = np.load(idxfile)
+        except:
+            raise Exception('File reading error: Please redownload the file {} from the GitHub website again!'.format(idxfile))
+
+        # Predict
+        ddg = GeoPPIpredict(fea, forest, sorted_idx)
+
+    if predictor_kind == 'xgb':
+        # Load XGBoost model
+        with open(xgbfile, 'rb') as pickle_file:
+            xgb_model = pickle.load(pickle_file)
+
+        # Predict (currently, 1 point at a time)
+        ddg = xgb_model.predict(np.expand_dims(fea, axis=0))[0]
+
     return ddg
 
 
@@ -49,9 +66,10 @@ def main():
     if len(sys.argv) > 5:
         foldx_exec = sys.argv[5]
 
-    # Set forest parameters
+    # Set model arguments
     gbtfile = 'trainedmodels/gbt-s4169.pkl'
     idxfile = 'trainedmodels/sortidx.npy'
+    xgbfile = 'trainedmodels/SKEMPI2-ML/predictor.pkl'
 
     # Encode
     fea = encode(
@@ -63,7 +81,8 @@ def main():
     )
 
     # Predict
-    ddg = predict(fea, gbtfile, idxfile)
+    # ddg = predict(fea, gbtfile=gbtfile, idxfile=idxfile)
+    ddg = predict(fea, xgbfile=xgbfile)
 
     # Print prediction and running time
     # runtime = time.time() - t_begin
