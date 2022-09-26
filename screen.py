@@ -1,18 +1,25 @@
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing as mp
 import os
 import sys
 import csv
 import datetime
+import traceback
 from pathlib import Path
 from time import perf_counter
 from collections.abc import Iterable
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
+import pickle
+import numpy as np
+import torch
+
+from models import GeometricEncoder
 from encode import encode
 from predict import predict
 
 
 KILL_WRITE_PROCESS_MSG = 'KILL_WRITE_PROCESS_MSG'
+ROOT_DIR = os.environ.get('ROOT_DIR')
 
 
 # TODO move to utils.misc
@@ -71,22 +78,27 @@ def get_results_csv_header():
 
 
 def screen_chunk(chunk, encode_params, predict_params, write_queue):
-    # Compute outputs for chunk
-    chunk_output = []
+    # Start timer
+    start = perf_counter()
+
+    # Encode
+    chunk_features = []
     for input in chunk:
-        # Compute
-        start = perf_counter()
         features = encode(*input, **encode_params)
-        prediction = predict(features, **predict_params)
-        finish = perf_counter()
+        chunk_features.append(features)
+    chunk_features = np.array(chunk_features, dtype=object)
 
-        # Format and store output
-        elapsed = finish - start
-        mutation = input[1]
-        output = (mutation, prediction, elapsed)
-        chunk_output.append(output)
+    # Predict
+    chunk_prediction = predict(chunk_features, **predict_params)
 
-    # Write
+    # Finish timer
+    finish = perf_counter()
+    elapsed = finish - start
+
+    # Format and store output
+    chunk_mutations = list(map(lambda input: input[1], chunk))
+    chunk_elapsed = len(chunk) * [elapsed / len(chunk)]
+    chunk_output = list(zip(chunk_mutations, chunk_prediction, chunk_elapsed))
     write_queue.put(chunk_output)
 
 
@@ -99,7 +111,7 @@ def write_process(write_queue, outfile, header):
 
 
 def main():
-    pdbfile = sys.argv[1]
+    pdbfile = Path(sys.argv[1])
     partners = sys.argv[2]
     mutfile = Path(sys.argv[3])
     outdir = Path(sys.argv[4])
@@ -110,7 +122,7 @@ def main():
         wt_kind = sys.argv[6]
 
     # Set parameters for parallelization
-    max_workers = os.cpu_count()
+    max_workers = os.cpu_count() - 2
     chunk_size = 5
 
     # Set output parameters
@@ -119,23 +131,41 @@ def main():
     runstatsfile = outdir / 'runstats.csv'
 
     # Set screening parameters
+    gnnfile = 'trainedmodels/GeoEnc.tor'
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # gnnmodel = GeometricEncoder(256)
+    # try:
+    #     gnnmodel.load_state_dict(torch.load(gnnfile, map_location=device))
+    # except Exception as exc:
+    #     print('File reading error: Please redownload the file {}'
+    #           ' from the GitHub website again!'.format(gnnfile))
+    #     print(exc)
+    # gnnmodel.to(device)
+    # gnnmodel.eval()
     encode_params = dict(
-        gnnfile='trainedmodels/GeoEnc.tor',
+        # gnnmodel=gnnmodel,
+        gnnfile=gnnfile,
         foldx_exec='./foldx',
         foldxsavedir=None,
         wt_kind=wt_kind
     )
+
+    # Set prediction parameters
+    xgbfile = 'trainedmodels/SKEMPI2-ML/predictor.pkl'
+    with open(xgbfile, 'rb') as pickle_file:
+        xgb_model = pickle.load(pickle_file)
     predict_params = dict(
-        # xgbfile = 'trainedmodels/SKEMPI2-ML/predictor.pkl'
-        gbtfile='trainedmodels/gbt-s4169.pkl',
-        idxfile='trainedmodels/sortidx.npy'
+        predictor_sklearn=xgb_model
+        # xgbfile='trainedmodels/SKEMPI2-ML/predictor.pkl'
+        # gbtfile='trainedmodels/gbt-s4169.pkl',
+        # idxfile='trainedmodels/sortidx.npy'
     )
 
-    # Construct input data
+    # Construct input chunks
     with open(mutfile) as file:
         lines = file.readlines()
         mutations_list = [line.rstrip() for line in lines]
-    pdbfiles_list = len(mutations_list) * [pdbfile]
+    pdbfiles_list = len(mutations_list) * [str(pdbfile)]
     partners_list = len(mutations_list) * [partners]
     inputs = list(zip(pdbfiles_list, mutations_list, partners_list))
     chunks = list_to_chunks(inputs, chunk_size)
@@ -164,20 +194,22 @@ def main():
                 future.result()
             except Exception as exc:
                 print(f'{chunk} generated an exception: {exc}')
+                print(traceback.format_exc(), end='\n\n')
 
         # Stop writer
         write_queue.put(KILL_WRITE_PROCESS_MSG)
 
     # Write run statistics
-    # TODO cut paths to project home dir
     finish = perf_counter()
     elapsed = finish - start
     now = datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    pdbfile_rel = pdbfile.relative_to(ROOT_DIR) if ROOT_DIR else pdbfile
+    mutfile_rel = mutfile.relative_to(ROOT_DIR) if ROOT_DIR else mutfile
     runstats = {
         'Datetime': now,
-        'PDB file': pdbfile,
+        'PDB file': pdbfile_rel,
         'Partners': partners,
-        'Screened space file': mutfile,
+        'Screened space file': mutfile_rel,
         'Max workers': max_workers,
         'Chunk size': chunk_size,
         'Elapsed time': elapsed,

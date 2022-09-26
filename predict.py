@@ -10,16 +10,37 @@ from models import *
 from encode import encode
 
 
-# TODO Rewrite to XGBoost
-def predict(fea, gbtfile=None, idxfile=None, xgbfile=None):
-    if gbtfile is not None and idxfile is not None:
+def predict(
+    fea,
+    predictor_sklearn=None, gbtfile=None, idxfile=None, xgbfile=None
+):
+    """
+    Predict ddG on features from pre-trained GNN. Originally, `gbtfile` and
+    `idxfile` were used to infer for one entry at a time. Futher it was extended
+    to re-trained model from `xgbfile`. And currenly it also supports batched
+    inference on already uploaded model `predictor_sklearn` with sklearn
+    interface.
+    :param fea: Array of size 1) (n_features,) or 2) (n_entries, n_features)
+    :param predictor_sklearn: Model object with sklearn interface. Supports (2)
+    :param gbtfile: File to sklearn GradientBoostingRegressor. Supports (1)
+    :param idxfile: File to feature importance of model from `gbtfile`.
+    :param xgbfile: File to sklearn XGBRegressor. Supports (1)
+    :return: Array of either 1) scalar or 2) (n_entries,)
+    """
+    if predictor_sklearn is not None:
+        predictor_kind = 'sklearn_model'
+    elif gbtfile is not None and idxfile is not None:
         predictor_kind = 'gbt'
     elif xgbfile is not None:
         predictor_kind = 'xgb'
     else:
         raise ValueError('Wrong predict arguments specified.')
 
-    if predictor_kind == 'gbt':
+    if predictor_kind == 'sklearn_model':
+        # Infer on already loaded predictor with sklearn interface
+        ddg = predictor_sklearn.predict(fea)
+
+    elif predictor_kind == 'gbt':
         # Load GBT model
         try:
             with open(gbtfile, 'rb') as pickle_file:

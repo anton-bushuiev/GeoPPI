@@ -5,6 +5,8 @@ import warnings
 import argparse
 import torch
 import pickle
+import string
+import random
 from pathlib import Path
 import Bio.PDB
 from models import *
@@ -253,16 +255,24 @@ def build_graph(lines, interface_res, mutinfo, cutoff=3, max_dis=12, noisedict =
 
 
 def prepare_workdir(pdbfile, mutationinfo):
+    # Generate random id
+    # Note: Needed to avoid collision if the same copied mutation is run
+    # in parallel in two or more processes (which is not a very practical
+    # scenario though)
+    random_id = ''.join(random.choices(string.ascii_letters, k=20))
+
     # Rename original .pdb file to incorporate mutation info
     mutationinfo_osname = mutationinfo.replace(',', '_')
     os.system(f'cp {pdbfile} {pdbfile[:-4]}-{mutationinfo_osname}{pdbfile[-4:]}')
+
     # Move renamed file to local directory
     pdbfile = f'{pdbfile[:-4]}-{mutationinfo_osname}{pdbfile[-4:]}'
     os.system('mv {} ./'.format(pdbfile))
+
     # Set up working directory
     pdbfile = pdbfile.split('/')[-1]
     pdb = pdbfile.split('.')[0]
-    workdir = f'workdir-{pdb}'
+    workdir = f'workdir-{pdb}-{random_id}'
     if path.exists('./{}'.format(workdir)):
         os.system('rm -r {}'.format(workdir))
     os.system('mkdir {}'.format(workdir))
@@ -437,11 +447,17 @@ def pdbs_to_graphs(
 
 def encode(
         pdbfile, mutationinfo, if_info,
+        gnnmodel=None,
         gnnfile='trainedmodels/GeoEnc.tor',
         foldx_exec='./foldx',
         foldxsavedir=None,
         wt_kind='foldx_byproduct'
 ):
+    # if not (isinstance(pdbfile, list) or isinstance(pdbfile, tuple)):
+    #     pdbfile = [pdbfile]
+    #     mutationinfo = [mutationinfo]
+    #     if_info = [if_info]
+
     # Prepare working directory
     pdbfile, pdb, workdir = prepare_workdir(pdbfile, mutationinfo)
 
@@ -461,24 +477,26 @@ def encode(
     )
 
     # Load GNN encoder
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = GeometricEncoder(256)
-    try:
-        model.load_state_dict(torch.load(gnnfile, map_location=device))
-    except:
-        print('File reading error: Please redownload the file {}'
-              ' from the GitHub website again!'.format(gnnfile))
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if gnnmodel is None:
+        gnnmodel = GeometricEncoder(256)
+        try:
+            gnnmodel.load_state_dict(torch.load(gnnfile, map_location=device))
+        except:
+            print('File reading error: Please redownload the file {}'
+                  ' from the GitHub website again!'.format(gnnfile))
+        gnnmodel.to(device)
+        gnnmodel.eval()
 
     # Move graph tensors to device
-    model.to(device)
-    model.eval()
     A = A.to(device)
     E = E.to(device)
     A_m = A_m.to(device)
     E_m = E_m.to(device)
 
     # Encode
-    fea = GeoPPIencode(A, E, A_m, E_m, model)
+    fea = GeoPPIencode(A, E, A_m, E_m, gnnmodel)
+    fea = fea.cpu().detach().numpy()
 
     # Clean
     os.system('rm ./{}'.format(pdbfile))
@@ -495,7 +513,6 @@ if __name__ == '__main__':
     parser.add_argument('--foldx_savedir', default=None)
     parser.add_argument('--foldx_exec', default='./foldx')
     args = parser.parse_args()
-    # assert len(args.posargs) == 3, f'Wrong num. of positional arguments {args}.'
     pdbfile, mutationinfo, if_info = args.posargs
 
     # Encode
