@@ -11,13 +11,12 @@ from encode import encode
 
 
 def predict(
-    fea,
-    predictor_sklearn=None, gbtfile=None, idxfile=None, xgbfile=None
+    fea, predictor_sklearn=None, gbtfile=None, idxfile=None, xgbfile=None
 ):
     """
     Predict ddG on features from pre-trained GNN. Originally, `gbtfile` and
     `idxfile` were used to infer for one entry at a time. Futher it was extended
-    to re-trained model from `xgbfile`. And currenly it also supports batched
+    to re-trained model from `xgbfile`. Currenly, it also supports batched
     inference on already uploaded model `predictor_sklearn` with sklearn
     interface.
     :param fea: Array of size 1) (n_features,) or 2) (n_entries, n_features)

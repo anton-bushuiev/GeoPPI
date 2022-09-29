@@ -42,8 +42,8 @@ rundatetime=$(date +'%d-%m-%Y_%H-%M-%S')
 runid="${runname}_${rundatetime}"
 
 # Run screening
-python screen.py "${pdbfile}" "${partners}" "${mutfile}" "${outdir}" \
-                 "${runid}" "${wtkind}"
+python screen.py "${pdbfile}" "${partners}" "${mutfile}" "${outdir}" "${runid}"\
+                 --wt_kind "${wtkind}"
 
 # Copy logging files
 logsdir="${outdir}/logs"

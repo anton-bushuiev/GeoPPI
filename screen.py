@@ -3,6 +3,7 @@ import sys
 import csv
 import datetime
 import traceback
+import argparse
 from pathlib import Path
 from time import perf_counter
 from collections.abc import Iterable
@@ -20,6 +21,10 @@ from predict import predict
 
 KILL_WRITE_PROCESS_MSG = 'KILL_WRITE_PROCESS_MSG'
 ROOT_DIR = os.environ.get('ROOT_DIR')
+
+# Process-specific instances of models. Set by `init_worker`
+ENCODER_MODEL = None
+PREDICTOR_MODEL = None
 
 
 # TODO move to utils.misc
@@ -78,6 +83,10 @@ def get_results_csv_header():
 
 
 def screen_chunk(chunk, encode_params, predict_params, write_queue):
+    # Set process-specific instances of models
+    encode_params['gnnmodel'] = ENCODER_MODEL
+    predict_params['predictor_sklearn'] = PREDICTOR_MODEL
+
     # Start timer
     start = perf_counter()
 
@@ -110,56 +119,68 @@ def write_process(write_queue, outfile, header):
         write_to_csv(data, outfile, header)
 
 
+def init_worker(encoder_file, predictor_file):
+    global ENCODER_MODEL, PREDICTOR_MODEL
+
+    # Init encoder
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    ENCODER_MODEL = GeometricEncoder(256)
+    try:
+        state_dict = torch.load(encoder_file, map_location=device)
+        ENCODER_MODEL.load_state_dict(state_dict)
+    except Exception as exc:
+        print(f'File reading error: Please re-download the file {encoder_file}'
+              f' from the GitHub website again!')
+        print(exc)
+    ENCODER_MODEL.to(device)
+    ENCODER_MODEL.eval()
+
+    # Init predictor
+    with open(predictor_file, 'rb') as handle:
+        PREDICTOR_MODEL = pickle.load(handle)
+
+
 def main():
-    pdbfile = Path(sys.argv[1])
-    partners = sys.argv[2]
-    mutfile = Path(sys.argv[3])
-    outdir = Path(sys.argv[4])
-    runid = sys.argv[5]
-    # TODO other params from command line
-    wt_kind = 'foldx_byproduct'
-    if len(sys.argv) > 6:
-        wt_kind = sys.argv[6]
+    # Define command line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('posargs', nargs=5)
+    parser.add_argument('--wt_kind', default='foldx_byproduct')
+    parser.add_argument('--chunk_size', default=5)  # Default is for small data
+    parser.add_argument('--foldx_exec', default='./foldx')
+    parser.add_argument('--foldx_savedir', default=None)
+    parser.add_argument('--encoder_file', default='trainedmodels/GeoEnc.tor')
+    parser.add_argument('--predictor_file',
+                        default='trainedmodels/SKEMPI2-ML/predictor.pkl')
+
+    # Parse positional command line arguments
+    args = parser.parse_args()
+    pdbfile = Path(args.posargs[0])
+    partners = args.posargs[1]
+    mutfile = Path(args.posargs[2])
+    outdir = Path(args.posargs[3])
+    runid = args.posargs[4]
 
     # Set parameters for parallelization
     max_workers = os.cpu_count() - 2
-    chunk_size = 5
+    chunk_size = args.chunk_size
 
     # Set output parameters
     os.makedirs(outdir, exist_ok=True)
     outfile = outdir / f'results-{runid}.csv'
     runstatsfile = outdir / 'runstats.csv'
 
-    # Set screening parameters
-    gnnfile = 'trainedmodels/GeoEnc.tor'
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # gnnmodel = GeometricEncoder(256)
-    # try:
-    #     gnnmodel.load_state_dict(torch.load(gnnfile, map_location=device))
-    # except Exception as exc:
-    #     print('File reading error: Please redownload the file {}'
-    #           ' from the GitHub website again!'.format(gnnfile))
-    #     print(exc)
-    # gnnmodel.to(device)
-    # gnnmodel.eval()
+    # Set process initialization arguments
+    initargs = (args.encoder_file, args.predictor_file)
+
+    # Set encoding parameters
     encode_params = dict(
-        # gnnmodel=gnnmodel,
-        gnnfile=gnnfile,
-        foldx_exec='./foldx',
-        foldxsavedir=None,
-        wt_kind=wt_kind
+        foldx_exec=args.foldx_exec,
+        foldxsavedir=args.foldx_savedir,
+        wt_kind=args.wt_kind
     )
 
     # Set prediction parameters
-    xgbfile = 'trainedmodels/SKEMPI2-ML/predictor.pkl'
-    with open(xgbfile, 'rb') as pickle_file:
-        xgb_model = pickle.load(pickle_file)
-    predict_params = dict(
-        predictor_sklearn=xgb_model
-        # xgbfile='trainedmodels/SKEMPI2-ML/predictor.pkl'
-        # gbtfile='trainedmodels/gbt-s4169.pkl',
-        # idxfile='trainedmodels/sortidx.npy'
-    )
+    predict_params = dict()
 
     # Construct input chunks
     with open(mutfile) as file:
@@ -176,7 +197,9 @@ def main():
 
     # Run screening in parallel
     start = perf_counter()
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with ProcessPoolExecutor(
+        max_workers=max_workers, initializer=init_worker, initargs=initargs
+    ) as executor:
         # Start writer
         header = get_results_csv_header()
         executor.submit(write_process, write_queue, outfile, header)
@@ -214,7 +237,7 @@ def main():
         'Chunk size': chunk_size,
         'Elapsed time': elapsed,
         'Run id': runid,
-        'Wild type kind': wt_kind
+        'Wild type kind': args.wt_kind
     }
     output = list(runstats.values())
     header = list(runstats.keys())
