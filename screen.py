@@ -91,11 +91,17 @@ def screen_chunk(chunk, encode_params, predict_params, write_queue):
     start = perf_counter()
 
     # Encode
-    chunk_features = []
-    for input in chunk:
-        features = encode(*input, **encode_params)
-        chunk_features.append(features)
-    chunk_features = np.array(chunk_features, dtype=object)
+    # chunk_features = []
+    # for input in chunk:
+    #     features = encode(*input, **encode_params)
+    #     chunk_features.append(features)
+    # chunk_features = np.array(chunk_features, dtype=object)
+    chunk_pdbfiles = list(map(lambda x: x[0], chunk))
+    chunk_mutations = list(map(lambda x: x[1], chunk))
+    chunk_partners = list(map(lambda x: x[2], chunk))
+    chunk_features = encode(
+        chunk_pdbfiles, chunk_mutations, chunk_partners, **encode_params
+    )
 
     # Predict
     chunk_prediction = predict(chunk_features, **predict_params)
@@ -145,12 +151,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('posargs', nargs=5)
     parser.add_argument('--wt_kind', default='foldx_byproduct')
-    parser.add_argument('--chunk_size', default=5)  # Default is for small data
+    parser.add_argument(
+        '--chunk_size', default=5, type=int  # Default is for small data
+    )
+    parser.add_argument('--max_workers', default=os.cpu_count() - 2, type=int)
     parser.add_argument('--foldx_exec', default='./foldx')
     parser.add_argument('--foldx_savedir', default=None)
+    parser.add_argument(
+        '--foldx_one_by_one', action='store_true', default=False
+    )
     parser.add_argument('--encoder_file', default='trainedmodels/GeoEnc.tor')
-    parser.add_argument('--predictor_file',
-                        default='trainedmodels/SKEMPI2-ML/predictor.pkl')
+    parser.add_argument(
+        '--predictor_file', default='trainedmodels/SKEMPI2-ML/predictor.pkl'
+    )
 
     # Parse positional command line arguments
     args = parser.parse_args()
@@ -161,7 +174,7 @@ def main():
     runid = args.posargs[4]
 
     # Set parameters for parallelization
-    max_workers = os.cpu_count() - 2
+    max_workers = args.max_workers
     chunk_size = args.chunk_size
 
     # Set output parameters
@@ -176,6 +189,7 @@ def main():
     encode_params = dict(
         foldx_exec=args.foldx_exec,
         foldxsavedir=args.foldx_savedir,
+        foldx_chunked=not args.foldx_one_by_one,
         wt_kind=args.wt_kind
     )
 

@@ -7,6 +7,7 @@ import torch
 import pickle
 import string
 import random
+from itertools import groupby
 from pathlib import Path
 import Bio.PDB
 from models import *
@@ -263,16 +264,16 @@ def prepare_workdir(pdbfile, mutationinfo):
 
     # Rename original .pdb file to incorporate mutation info
     mutationinfo_osname = mutationinfo.replace(',', '_')
-    os.system(f'cp {pdbfile} {pdbfile[:-4]}-{mutationinfo_osname}{pdbfile[-4:]}')
+    os.system(f'cp {pdbfile} {pdbfile[:-4]}-{mutationinfo_osname}-{random_id}-{pdbfile[-4:]}')
 
     # Move renamed file to local directory
-    pdbfile = f'{pdbfile[:-4]}-{mutationinfo_osname}{pdbfile[-4:]}'
+    pdbfile = f'{pdbfile[:-4]}-{mutationinfo_osname}-{random_id}-{pdbfile[-4:]}'
     os.system('mv {} ./'.format(pdbfile))
 
     # Set up working directory
     pdbfile = pdbfile.split('/')[-1]
     pdb = pdbfile.split('.')[0]
-    workdir = f'workdir-{pdb}-{random_id}'
+    workdir = f'workdir-{pdb}'
     if path.exists('./{}'.format(workdir)):
         os.system('rm -r {}'.format(workdir))
     os.system('mkdir {}'.format(workdir))
@@ -344,82 +345,68 @@ def revert_mutation(mut):
         return ','.join(list(map(revert_mutation, mut_list)))
 
 
+def all_equal(iterable):
+    g = groupby(iterable)
+    return next(g, True) and not next(g, False)
+
+
+# TODO Read structures from cache
 def prepare_structures(
-        workdir, pdbfile, pdb, mutationinfo,
-        foldx_exec, foldxsavedir,
-        wt_kind='foldx_byproduct'
+        workdirs, pdbfiles, pdbs, mutationinfos,
+        foldx_exec, foldxsavedir, wt_kind='foldx_byproduct'
 ):
     # Check input
     if wt_kind not in ['original', 'foldx_itself', 'foldx_byproduct']:
         raise ValueError('Wrong wt-kind value')
 
+    # TODO Remove redundant workdirs
+    # pdbs_pref = list(map(lambda: x.split('-')[0], pdbfiles))
+    # pdbfiles_pref = list(map(lambda: x.split('-')[0], pdbfiles))
+    # if len(pdbs) > 1 and (not all_equal(pdbs_pref) or not all_equal(pdbfiles_pref)):
+    #     raise ValueError('Batched FoldX execution is only available on same'
+    #                      ' structure')
+    pdbfile = pdbfiles[0]
+    pdb = pdbs[0]
+
     # Define necessary paths
-    individual_list_path = f'individual_list_{mutationinfo}.txt'
-    wt_path = f'{workdir}/WT_{pdb}_1.pdb'
-    mut_path = f'{workdir}/{pdb}_1.pdb'
-    wt_path_cache = f'{foldxsavedir}/{pdb}-wt.pdb'
-    mut_path_cache = f'{foldxsavedir}/{pdb}-mut.pdb'
-    workdir_tmp = f'{workdir}/tmp'
-    os.mkdir(workdir_tmp)
+    workdir_common = f'{workdirs[0]}/common'
+    os.mkdir(workdir_common)
+    individual_list_path = f'{workdir_common}/individual_list.txt'
+
+    wt_paths = [
+        f'{workdir_common}/WT_{pdb}_{i+1}.pdb' for i in range(len(pdbs))
+    ]
+    mut_paths = [
+        f'{workdir_common}/{pdb}_{i+1}.pdb' for i in range(len(pdbs))
+    ]
 
     # If mutations is reverse, revert back and swap roles
-    mutation_is_reverse = is_mutation_reverse(pdbfile, mutationinfo)
-    if mutation_is_reverse:
-        mutationinfo = revert_mutation(mutationinfo)
-        individual_list_path = f'individual_list_{mutationinfo}.txt'
-        wt_path, mut_path = mut_path, wt_path
-        wt_path_cache, mut_path_cache = mut_path_cache, wt_path_cache
+    mutationinfos = list(mutationinfos)
+    for i in range(len(mutationinfos)):
+        mutation_is_reverse = is_mutation_reverse(pdbfile, mutationinfos[i])
+        if mutation_is_reverse:
+            mutationinfos[i] = revert_mutation(mutationinfos[i])
+            wt_paths[i], mut_path[i] = mut_path[i], wt_path[i]
 
-    # Check if structures are already in cache and read them if yes
-    if foldxsavedir is not None:
-        if path.isfile(wt_path_cache) and path.isfile(mut_path_cache):
-            os.system(f'cp {wt_path_cache} {wt_path}')
-            os.system(f'cp {mut_path_cache} {mut_path}')
+    # Run FoldX to mutate structure
+    # This run also automatically produces a wild-type structure for
+    # wt_kind == 'foldx_byproduct' scenario
+    with open(individual_list_path, 'w') as handle:
+        for mutationinfo in mutationinfos:
+            handle.write(mutationinfo + ';\n')
+    run_foldx(foldx_exec, pdbfile, individual_list_path, workdir_common)
 
-    # Build .pdb files for mutated complex with FoldX
-    else:
-        # Run FoldX to mutate structure
-        # This run also automatically produces a wild-type structure for
-        # wt_kind == 'foldx_byproduct' scenario
-        mut = mutationinfo + ';'
-        with open(individual_list_path, 'w') as file:
-            file.write(mut)
-        run_foldx(foldx_exec, pdbfile, individual_list_path, workdir)
-
-        # Run FoldX to mutate structure to itself
-        if wt_kind == 'foldx_itself':
-            rev_mut = mutationinfo.split(',')
-            rev_mut = list(map(lambda m: m[:-1] + m[0], rev_mut))
-            rev_mut = ','.join(rev_mut)
-            rev_mut = rev_mut + ';'
-            with open(individual_list_path, 'w') as file:
-                file.write(rev_mut)
-            run_foldx(foldx_exec, pdbfile, individual_list_path, workdir_tmp)
-            os.system(f'mv {workdir_tmp}/{pdb}_1.pdb {wt_path}')
-
-        # Leave original wild-type structure
-        if wt_kind == 'original':
-            os.system(f'cp {pdbfile} {wt_path}')
-
-        # Save structures
-        if foldxsavedir is not None:
-            os.system(f'cp {wt_path} {wt_path_cache}')
-            os.system(f'cp {mut_path} {mut_path_cache}')
-
-    # If mutations is reverse, swap files
-    # (Not necessary but for naming consistency)
-    if mutation_is_reverse:
-        tmp_path = f'{workdir_tmp}/tmp.pdb'
-        os.system(f'mv {wt_path} {tmp_path} &&'
-                  f'mv {mut_path} {wt_path} &&'
-                  f'mv {tmp_path} {mut_path}')
-        wt_path, mut_path = mut_path, wt_path
+    # Save structures
+    # if foldxsavedir is not None:
+    #     wt_path_cache = f'{foldxsavedir}/{pdb}-wt.pdb'
+    #     mut_path_cache = f'{foldxsavedir}/{pdb}-mut.pdb'
+    #     os.system(f'cp {wt_path} {wt_path_cache}')
+    #     os.system(f'cp {mut_path} {mut_path_cache}')
 
     # Clean
-    os.system(f'rm -f {individual_list_path}')
-    os.system(f'rm -rf {workdir_tmp}')
+    # os.system(f'rm -f {individual_list_path}')
 
-    return wt_path, mut_path
+    return wt_paths, mut_paths
 
 
 def pdbs_to_graphs(
@@ -446,36 +433,14 @@ def pdbs_to_graphs(
 
 
 def encode(
-        pdbfile, mutationinfo, if_info,
+        pdbfiles, mutationinfos, if_infos,
         gnnmodel=None,
         gnnfile='trainedmodels/GeoEnc.tor',
         foldx_exec='./foldx',
         foldxsavedir=None,
-        wt_kind='foldx_byproduct'
+        wt_kind='foldx_byproduct',
+        foldx_chunked=False
 ):
-    # if not (isinstance(pdbfile, list) or isinstance(pdbfile, tuple)):
-    #     pdbfile = [pdbfile]
-    #     mutationinfo = [mutationinfo]
-    #     if_info = [if_info]
-
-    # Prepare working directory
-    pdbfile, pdb, workdir = prepare_workdir(pdbfile, mutationinfo)
-
-    # Generate interface residues
-    interfacefile = prepare_interface(workdir, pdbfile, if_info)
-
-    # Prepare wild-type and mutated structures with FoldX
-    wildtypefile, mutantfile = prepare_structures(
-        workdir, pdbfile, pdb, mutationinfo,
-        foldx_exec, foldxsavedir,
-        wt_kind
-    )
-
-    # Convert built .pdb files to graph representation
-    A, E, A_m, E_m = pdbs_to_graphs(
-        wildtypefile, mutantfile, mutationinfo, interfacefile, if_info, workdir
-    )
-
     # Load GNN encoder
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     if gnnmodel is None:
@@ -488,50 +453,127 @@ def encode(
         gnnmodel.to(device)
         gnnmodel.eval()
 
-    # Move graph tensors to device
-    A = A.to(device)
-    E = E.to(device)
-    A_m = A_m.to(device)
-    E_m = E_m.to(device)
+    # 1. Sequential step
+    pdbfiles_new, pdbs, workdirs, interfacefiles = [], [], [], []
+    inputs = zip(pdbfiles, mutationinfos, if_infos)
+    for pdbfile, mutationinfo, if_info in inputs:
+        # Prepare working directory
+        pdbfile, pdb, workdir = prepare_workdir(pdbfile, mutationinfo)
 
-    # Encode
-    fea = GeoPPIencode(A, E, A_m, E_m, gnnmodel)
-    fea = fea.cpu().detach().numpy()
+        # Generate interface residues
+        interfacefile = prepare_interface(workdir, pdbfile, if_info)
 
-    # Clean
-    os.system('rm ./{}'.format(pdbfile))
-    os.system(f'rm -rf ./{workdir}')
+        pdbfiles_new.append(pdbfile)
+        pdbs.append(pdb)
+        workdirs.append(workdir)
+        interfacefiles.append(interfacefile)
+    pdbfiles = pdbfiles_new
 
-    return fea
+    # 2. Sequential/Parallel step
+    print('foldx_chunked', foldx_chunked, type(foldx_chunked))
+    if foldx_chunked:
+        wildtypefiles, mutantfiles = prepare_structures(
+            workdirs, pdbfiles, pdbs, mutationinfos,
+            foldx_exec, foldxsavedir, wt_kind
+        )
+    else:
+        wildtypefiles, mutantfiles = [], []
+        inputs = zip(workdirs, pdbfiles, pdbs, mutationinfos)
+        for workdir, pdbfile, pdb, mutationinfo in inputs:
+            wildtypefiles_single, mutantfiles_single = prepare_structures(
+                [workdir], [pdbfile], [pdb], [mutationinfo],
+                foldx_exec, foldxsavedir, wt_kind
+            )
+            wildtypefiles.extend(wildtypefiles_single)
+            mutantfiles.extend(mutantfiles_single)
+    print(wildtypefiles)
+    print(mutantfiles)
+
+    # 3. Sequential step
+    features = []
+    inputs = zip(wildtypefiles, mutantfiles, mutationinfos,
+                 interfacefiles, if_infos, workdirs, pdbfiles)
+    for wildtypefile, mutantfile, mutationinfo,\
+        interfacefile, if_info, workdir, pdbfile in inputs:
+        # Convert built .pdb files to graph representation
+        A, E, A_m, E_m = pdbs_to_graphs(
+            wildtypefile, mutantfile, mutationinfo,
+            interfacefile, if_info, workdir
+        )
+        # Move graph tensors to device
+        A = A.to(device)
+        E = E.to(device)
+        A_m = A_m.to(device)
+        E_m = E_m.to(device)
+
+        # Encode
+        fea = GeoPPIencode(A, E, A_m, E_m, gnnmodel)
+        fea = fea.cpu().detach().numpy()
+
+        # Clean
+        os.system('rm ./{}'.format(pdbfile))
+        os.system(f'rm -rf ./{workdir}')
+
+        features.append(fea)
+
+    features = np.array(features, dtype=object)
+    return features
 
 
-if __name__ == '__main__':
+def main():
+    """
+    This main function is designed for encoding of several mutations of the
+    same structure and chains.
+    """
     # Parse command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('posargs', nargs=3)
+    parser.add_argument('posargs', nargs=2)
     parser.add_argument('--outdir', default=None)
     parser.add_argument('--foldx_savedir', default=None)
     parser.add_argument('--foldx_exec', default='./foldx')
+    parser.add_argument('--mutationinfo', default=None)
+    parser.add_argument('--mutfile', default=None)
     args = parser.parse_args()
-    pdbfile, mutationinfo, if_info = args.posargs
+    pdbfile, if_info = args.posargs
+
+    # Initialize mutations
+    if args.mutationinfo is not None and args.mutfile is not None:
+        raise ValueError('Both `mutationinfo` and `mutfile` specified.')
+    elif args.mutationinfo is not None:
+        mutationinfos = (args.mutationinfo,)
+    elif args.mutfile is not None:
+        with open(args.mutfile, 'r') as handle:
+            mutationinfos = tuple(handle.read().splitlines())
+    else:
+        raise ValueError('Mutation(s) are not specified.')
+
+    # Clone structure and chain info
+    pdbfiles = len(mutationinfos) * (pdbfile,)
+    if_infos = len(mutationinfos) * (if_info,)
 
     # Encode
-    fea = encode(
-        pdbfile, mutationinfo, if_info,
+    features = encode(
+        pdbfiles, mutationinfos, if_infos,
         gnnfile='trainedmodels/GeoEnc.tor',
         foldx_exec=args.foldx_exec,
         foldxsavedir=args.foldx_savedir
     )
+    print(features)
 
+    # TODO
     # Store output
-    outdir = args.outdir
-    if outdir:
-        # Write to file
-        pdb = Path(pdbfile).stem
-        outfile = Path(outdir) / f'{pdb}-{mutationinfo}-{if_info}'
-        with open(outfile, 'wb') as file:
-            pickle.dump(fea, file)
-    else:
-        # Print features
-        fea = map(str, fea.tolist())
-        print(';'.join(fea))
+    # outdir = args.outdir
+    # if outdir:
+    #     # Write to file
+    #     pdb = Path(pdbfile).stem
+    #     outfile = Path(outdir) / f'{pdb}-{mutationinfo}-{if_info}'
+    #     with open(outfile, 'wb') as file:
+    #         pickle.dump(fea, file)
+    # else:
+    #     # Print features
+    #     fea = map(str, fea.tolist())
+    #     print(';'.join(fea))
+
+
+if __name__ == '__main__':
+    main()
