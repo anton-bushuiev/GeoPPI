@@ -179,7 +179,7 @@ def main():
 
     # Set output parameters
     os.makedirs(outdir, exist_ok=True)
-    outfile = outdir / f'results-{runid}.csv'
+    outfile = outdir / f'predictions-{runid}.csv'
     runstatsfile = outdir / 'runstats.csv'
 
     # Set process initialization arguments

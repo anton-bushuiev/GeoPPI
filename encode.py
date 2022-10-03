@@ -294,7 +294,6 @@ def run_foldx(foldx_exec, pdbfile, individual_list, outdir):
         f' --pdb={pdbfile}'
         f' --mutant-file={individual_list}'
         f' --output-dir={outdir}'
-        f' --pdb-dir=./'
         f' > {outdir}/foldx.log'
     )
     return os.system(command)
@@ -470,7 +469,6 @@ def encode(
     pdbfiles = pdbfiles_new
 
     # 2. Sequential/Parallel step
-    print('foldx_chunked', foldx_chunked, type(foldx_chunked))
     if foldx_chunked:
         wildtypefiles, mutantfiles = prepare_structures(
             workdirs, pdbfiles, pdbs, mutationinfos,
