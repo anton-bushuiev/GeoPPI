@@ -92,6 +92,8 @@ def main():
     xgbfile = 'trainedmodels/SKEMPI2-ML/predictor.pkl'
 
     # Encode
+    # TODO No chunk
+    pdbfile, mutationinfo, if_info = [pdbfile], [mutationinfo], [if_info]
     fea = encode(
         pdbfile, mutationinfo, if_info,
         gnnfile='trainedmodels/GeoEnc.tor',
@@ -99,6 +101,7 @@ def main():
         foldxsavedir=foldxsavedir,
         wt_kind='foldx_byproduct'
     )
+    fea = fea[0]
 
     # Predict
     # ddg = predict(fea, gbtfile=gbtfile, idxfile=idxfile)

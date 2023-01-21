@@ -315,7 +315,8 @@ def is_mutation_reverse(pdbfile, mutationinfo, model_id=0):
 
     # Check mutated amino acid
     resname = model[chainid][pos].get_resname()
-    resname = Bio.PDB.Polypeptide.three_to_one(resname)
+    resname = Bio.PDB.Polypeptide.protein_letters_3to1[resname]
+
     if resname == wtres:
         return False
     elif resname == mutres:
@@ -484,8 +485,6 @@ def encode(
             )
             wildtypefiles.extend(wildtypefiles_single)
             mutantfiles.extend(mutantfiles_single)
-    print(wildtypefiles)
-    print(mutantfiles)
 
     # 3. Sequential step
     features = []
@@ -556,7 +555,6 @@ def main():
         foldx_exec=args.foldx_exec,
         foldxsavedir=args.foldx_savedir
     )
-    print(features)
 
     # TODO
     # Store output
